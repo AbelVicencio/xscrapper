@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# Ignore data files
+andrea.csv
+andrea.json
+borolas.csv
+borolas.json
+corresonsales.json
+fch.json
+mitl.json
+olinia.csv
+olinia.json
+scrap2.json

@@ -1,0 +1,16 @@
+{
+  "name": "scrap-twitter-x",
+  "version": "1.0.0",
+  "description": "Extensión de navegador para extraer información estructurada de tarjetas de contenido en X.com",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.0",
+    "rimraf": "^5.0.7"
+  }
+}

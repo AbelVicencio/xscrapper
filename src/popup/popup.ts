@@ -1,0 +1,240 @@
+// ─────────────────────────────────────────────────────
+// popup.ts — Lógica Resiliente
+// ─────────────────────────────────────────────────────
+
+function showToast(m: string) {
+  const t = document.getElementById("toast");
+  if (t) { t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2000); }
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "Nunca";
+  const d = new Date(iso);
+  return `${d.getDate()} ${["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][d.getMonth()]}, ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function animateCount(el: HTMLElement, start: number, end: number) {
+  if (start === end) return;
+  const duration = 400;
+  const startTime = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min((now - startTime) / duration, 1);
+    el.textContent = String(Math.floor(progress * (end - start) + start));
+    if (progress < 1) requestAnimationFrame(step);
+    else el.textContent = String(end);
+  };
+  requestAnimationFrame(step);
+}
+
+let lastCount = 0;
+let isScrollingActive = false;
+
+async function loadStats() {
+  const statusText = document.getElementById("activeStatusText");
+  const dot = document.querySelector(".status-dot");
+  const chkActive = document.getElementById("chkActive") as HTMLInputElement;
+  const btnAuto = document.getElementById("btnAutoscroll");
+  const totalEl = document.getElementById("totalPosts");
+  const exportEl = document.getElementById("lastExport");
+  const footerStatusText = document.getElementById("statusText");
+
+  let currentCount = 0;
+  // Mantener el estado visual actual si hay fallos
+  let isActive = chkActive ? chkActive.checked : false; 
+
+  // 1. Obtener stats globales de respaldo
+  try {
+    const globalResp = await chrome.runtime.sendMessage({ type: "GET_STATS" });
+    if (globalResp?.payload) {
+      currentCount = globalResp.payload.totalPosts;
+      if (exportEl) exportEl.textContent = formatDate(globalResp.payload.lastExport);
+    }
+  } catch (e) {
+    // Silencioso, el SW podría estar inactivo temporalmente
+  }
+
+  // 2. Intentar datos en vivo desde la pestaña de X
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url?.includes("x.com")) {
+      try {
+        const live = await chrome.tabs.sendMessage(tab.id!, { type: "GET_LIVE_STATS" });
+        if (live) {
+          // Usamos el número más alto disponible
+          currentCount = Math.max(currentCount, live.count);
+          isScrollingActive = !!live.isAutoscrolling;
+          isActive = !!live.isActive;
+          
+          if (statusText) {
+            statusText.textContent = isScrollingActive ? "Autoscroll..." : (isActive ? "Scraper activo" : "Pausado ☕");
+          }
+        }
+      } catch (e) {
+        // Error de conexión con la pestaña (el content script no está cargado)
+        if (statusText) statusText.textContent = "Refresca la pestaña (F5)";
+        isActive = false;
+        isScrollingActive = false;
+      }
+    } else {
+      if (statusText) statusText.textContent = "Abre x.com";
+      isActive = false;
+      isScrollingActive = false;
+    }
+  } catch (e) {
+    console.error("Error consultando pestañas:", e);
+  }
+
+  // 3. Actualizar la UI siempre (sin importar si hubo errores arriba)
+  if (chkActive) chkActive.checked = isActive;
+  if (dot) isActive ? dot.classList.remove("off") : dot.classList.add("off");
+  if (footerStatusText) footerStatusText.textContent = isActive ? "Observando cambios..." : "Deshabilitado...";
+  
+  if (btnAuto) {
+    btnAuto.textContent = isScrollingActive ? "🛑 Detener autoscroll" : "🚀 Autoscroll";
+    btnAuto.style.borderColor = isScrollingActive ? "#f4212e" : "#1d9bf0";
+    btnAuto.style.color = isScrollingActive ? "#f4212e" : "#1d9bf0";
+  }
+
+  if (totalEl) {
+    if (currentCount > lastCount) {
+      totalEl.classList.add("pop-animation");
+      setTimeout(() => totalEl.classList.remove("pop-animation"), 500);
+      animateCount(totalEl, lastCount, currentCount);
+    } else {
+      totalEl.textContent = String(currentCount);
+    }
+    lastCount = currentCount;
+  }
+}
+
+document.getElementById("chkActive")?.addEventListener("change", async (e: any) => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "SET_SCRAPER_STATE", payload: { active: e.target.checked } });
+});
+
+// Botón: Cargar JSON (Importar)
+const fileInput = document.getElementById("fileInput") as HTMLInputElement;
+document.getElementById("btnLoad")?.addEventListener("click", () => fileInput?.click());
+
+fileInput?.addEventListener("change", async (e: any) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (event) => {
+    try {
+      const json = JSON.parse(event.target?.result as string);
+      if (!Array.isArray(json)) throw new Error("Formato inválido");
+
+      const response = await chrome.runtime.sendMessage({ 
+        type: "IMPORT_DATA", 
+        payload: { posts: json } 
+      });
+
+      if (response?.success) {
+        showToast(`📥 ${response.count} posts cargados`);
+        loadStats();
+        // Notificar a la pestaña para refrescar caché
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "RELOAD_CACHE" }).catch(() => {});
+      }
+    } catch (err) {
+      showToast("❌ Archivo JSON inválido");
+      console.error(err);
+    }
+    fileInput.value = ""; // Reset para permitir cargar el mismo archivo
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById("btnAutoscroll")?.addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: isScrollingActive ? "STOP_AUTOSCROLL" : "START_AUTOSCROLL" });
+});
+
+document.getElementById("btnScan")?.addEventListener("click", async () => {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      const r = await chrome.tabs.sendMessage(tab.id, { type: "SCAN_VISIBLE" });
+      if (r?.success) {
+        showToast(`🔎 Escaneo total: ${r.count} posts`);
+        loadStats();
+      }
+    }
+  } catch (err) {
+    showToast("⚠️ Error al escanear");
+    console.error("Scan error:", err);
+  }
+});
+
+document.getElementById("btnExport")?.addEventListener("click", async () => {
+  const r = await chrome.storage.local.get("scraped_posts");
+  const posts = Object.values(r["scraped_posts"] || {});
+  if (posts.length === 0) return showToast("⚠️ Sin datos");
+  const blob = new Blob([JSON.stringify(posts, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download({ url, filename: `x-export-${Date.now()}.json`, saveAs: true }, () => {
+    chrome.storage.local.set({ last_export: new Date().toISOString() });
+  });
+});
+
+document.getElementById("btnExportCSV")?.addEventListener("click", async () => {
+  const res = await chrome.storage.local.get("scraped_posts");
+  const posts = Object.values(res["scraped_posts"] || {}) as any[];
+  if (posts.length === 0) return showToast("⚠️ Sin datos");
+
+  // 1. Columnas base
+  const headers = ["id", "author", "displayName", "date", "text", "url", "likes", "views", "reposts", "replies", "bookmarks", "lang", "appearanceCount", "isDetailView"];
+  
+  // 2. Calcular máximo de archivos multimedia para las columnas dinámicas
+  let maxMedia = 0;
+  posts.forEach(p => {
+    if (p.mediaUrls && p.mediaUrls.length > maxMedia) maxMedia = p.mediaUrls.length;
+  });
+
+  // Añadir encabezados de media (mediaUrl1, mediaUrl2...)
+  for (let i = 1; i <= maxMedia; i++) {
+    headers.push(`mediaUrl${i}`);
+  }
+
+  const rows = [headers.join(",")];
+
+  // 3. Generar filas
+  posts.forEach(p => {
+    const r = headers.map(h => {
+      // Manejo de ID (Excel Fix)
+      if (h === "id") return `="${p[h] ?? ""}"`;
+      
+      // Manejo de URLs multimedia dinámicas
+      if (h.startsWith("mediaUrl")) {
+        const index = parseInt(h.replace("mediaUrl", "")) - 1;
+        const mUrl = (p.mediaUrls && p.mediaUrls[index]) ? p.mediaUrls[index] : "";
+        return `"${mUrl}"`;
+      }
+
+      // Manejo de otros campos
+      let v = p[h] ?? "";
+      if (typeof v === "string") return `"${v.replace(/\n/g, " ").replace(/"/g, '""')}"`;
+      return v;
+    });
+    rows.push(r.join(","));
+  });
+
+  const blob = new Blob(["\uFEFF" + rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  chrome.downloads.download({ url, filename: `x-export-${Date.now()}.csv`, saveAs: true }, () => {
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("📊 CSV con Media generado");
+  });
+});
+
+document.getElementById("btnClear")?.addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "CLEAR_DATA" });
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: "CLEAR_MEMORY" }).catch(() => {});
+  showToast("🗑️ Borrado");
+});
+
+setInterval(loadStats, 500);
+loadStats();
