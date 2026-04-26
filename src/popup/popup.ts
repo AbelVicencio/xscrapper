@@ -238,3 +238,151 @@ document.getElementById("btnClear")?.addEventListener("click", async () => {
 
 setInterval(loadStats, 500);
 loadStats();
+
+// ═══════════════════════════════════════════════════════
+// ADVANCED SEARCH DIALOG LOGIC
+// ═══════════════════════════════════════════════════════
+
+const dialogOverlay = document.getElementById("dialogOverlay");
+const btnAdvSearch = document.getElementById("btnAdvSearch");
+const btnCloseDialog = document.getElementById("btnCloseDialog");
+const btnSearchGo = document.getElementById("btnSearchGo") as HTMLButtonElement;
+const urlPreview = document.getElementById("urlPreview");
+
+// Open/Close Dialog
+btnAdvSearch?.addEventListener("click", () => {
+  dialogOverlay?.classList.add("open");
+});
+
+btnCloseDialog?.addEventListener("click", () => {
+  dialogOverlay?.classList.remove("open");
+});
+
+// Close on overlay click (outside dialog body)
+dialogOverlay?.addEventListener("click", (e) => {
+  if (e.target === dialogOverlay) dialogOverlay.classList.remove("open");
+});
+
+/**
+ * Builds the raw query string from all form fields,
+ * following Twitter/X advanced search operator syntax.
+ * Order: text terms first, then metadata filters.
+ */
+function buildSearchQuery(): string {
+  const parts: string[] = [];
+
+  // 1. Words section
+  const allWords = (document.getElementById("sAllWords") as HTMLInputElement)?.value.trim();
+  if (allWords) parts.push(allWords);
+
+  const exactPhrase = (document.getElementById("sExactPhrase") as HTMLInputElement)?.value.trim();
+  if (exactPhrase) parts.push(`"${exactPhrase}"`);
+
+  const anyWords = (document.getElementById("sAnyWords") as HTMLInputElement)?.value.trim();
+  if (anyWords) {
+    const orParts = anyWords.split(/\s+/).join(" OR ");
+    parts.push(orParts);
+  }
+
+  const noneWords = (document.getElementById("sNoneWords") as HTMLInputElement)?.value.trim();
+  if (noneWords) {
+    noneWords.split(/\s+/).forEach(w => parts.push(`-${w}`));
+  }
+
+  const hashtags = (document.getElementById("sHashtags") as HTMLInputElement)?.value.trim();
+  if (hashtags) {
+    hashtags.split(/\s+/).forEach(h => parts.push(`#${h}`));
+  }
+
+  const lang = (document.getElementById("sLang") as HTMLSelectElement)?.value;
+  if (lang) parts.push(`lang:${lang}`);
+
+  // 2. People section
+  const fromAcc = (document.getElementById("sFromAccount") as HTMLInputElement)?.value.trim();
+  if (fromAcc) parts.push(`from:${fromAcc}`);
+
+  const toAcc = (document.getElementById("sToAccount") as HTMLInputElement)?.value.trim();
+  if (toAcc) parts.push(`to:${toAcc}`);
+
+  const mention = (document.getElementById("sMention") as HTMLInputElement)?.value.trim();
+  if (mention) parts.push(`@${mention}`);
+
+  // 3. Engagement section
+  const minReplies = (document.getElementById("sMinReplies") as HTMLInputElement)?.value;
+  if (minReplies && parseInt(minReplies) > 0) parts.push(`min_replies:${minReplies}`);
+
+  const minFaves = (document.getElementById("sMinFaves") as HTMLInputElement)?.value;
+  if (minFaves && parseInt(minFaves) > 0) parts.push(`min_faves:${minFaves}`);
+
+  const minRetweets = (document.getElementById("sMinRetweets") as HTMLInputElement)?.value;
+  if (minRetweets && parseInt(minRetweets) > 0) parts.push(`min_retweets:${minRetweets}`);
+
+  // 4. Dates section
+  const since = (document.getElementById("sSince") as HTMLInputElement)?.value;
+  if (since) parts.push(`since:${since}`);
+
+  const until = (document.getElementById("sUntil") as HTMLInputElement)?.value;
+  if (until) parts.push(`until:${until}`);
+
+  // 5. Media filters
+  if ((document.getElementById("sFilterImages") as HTMLInputElement)?.checked) parts.push("filter:images");
+  if ((document.getElementById("sFilterVideos") as HTMLInputElement)?.checked) parts.push("filter:videos");
+  if ((document.getElementById("sFilterLinks") as HTMLInputElement)?.checked) parts.push("filter:links");
+
+  return parts.join(" ");
+}
+
+/**
+ * Builds the full encoded X.com search URL.
+ */
+function buildSearchUrl(): string {
+  const query = buildSearchQuery();
+  if (!query) return "";
+  return `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query`;
+}
+
+/**
+ * Updates the URL preview and the search button state in real-time.
+ */
+function updatePreview(): void {
+  const url = buildSearchUrl();
+  if (urlPreview) {
+    if (url) {
+      urlPreview.textContent = url;
+      urlPreview.classList.add("has-query");
+    } else {
+      urlPreview.textContent = "Escribe términos para ver la URL...";
+      urlPreview.classList.remove("has-query");
+    }
+  }
+  if (btnSearchGo) {
+    btnSearchGo.disabled = !url;
+  }
+}
+
+// Listen for changes on ALL form inputs inside the dialog
+const searchFormInputs = document.querySelectorAll("#searchForm input, #searchForm select");
+searchFormInputs.forEach(input => {
+  input.addEventListener("input", updatePreview);
+  input.addEventListener("change", updatePreview);
+});
+
+// Run search: navigate the active tab to the constructed URL
+btnSearchGo?.addEventListener("click", async () => {
+  const url = buildSearchUrl();
+  if (!url) return;
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      await chrome.tabs.update(tab.id, { url });
+      showToast("🔬 Búsqueda lanzada");
+      // Close popup after navigating (gives it a moment to update)
+      setTimeout(() => window.close(), 300);
+    }
+  } catch (err) {
+    // If we can't update the tab, open in a new one
+    chrome.tabs.create({ url });
+    setTimeout(() => window.close(), 300);
+  }
+});

@@ -5,7 +5,8 @@
   "description": "Extrae información estructurada de tarjetas de contenido en X.com de forma pasiva",
   "permissions": [
     "storage",
-    "downloads"
+    "downloads",
+    "tabs"
   ],
   "host_permissions": [
     "https://x.com/*",
