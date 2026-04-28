@@ -45,8 +45,9 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
 
     case "IMPORT_DATA": {
       const importedPosts = message.payload?.posts || [];
+      const isReplace = message.payload?.replace || false;
       chrome.storage.local.get(STORAGE_KEY, (result) => {
-        const existingData = result[STORAGE_KEY] || {};
+        const existingData = isReplace ? {} : (result[STORAGE_KEY] || {});
         let importedCount = 0;
 
         importedPosts.forEach((post: any) => {
@@ -63,17 +64,40 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             if ((post.text?.length || 0) > (existing.text?.length || 0)) {
               existing.text = post.text;
             }
-            // Max métricas (ahora aplanadas)
+            
+            // Quedarse con metadata si falta en el existente
+            if (!existing.author && post.author) existing.author = post.author;
+            if (!existing.displayName && post.displayName) existing.displayName = post.displayName;
+            if (!existing.date && post.date) existing.date = post.date;
+            if (!existing.url && post.url) existing.url = post.url;
+            if (!existing.lang && post.lang) existing.lang = post.lang;
+
+            // Conservar información de vista de detalle (es más valiosa)
+            existing.isDetailView = existing.isDetailView || (post.isDetailView || false);
+
+            // Unir medios (mediaUrls) evitando duplicados
+            if (post.mediaUrls && post.mediaUrls.length > 0) {
+              const mergedMedia = new Set([...(existing.mediaUrls || []), ...post.mediaUrls]);
+              existing.mediaUrls = Array.from(mergedMedia);
+            }
+
+            // Max métricas (quedarse con los valores más altos)
             existing.likes = Math.max(existing.likes || 0, post.likes || 0);
             existing.views = Math.max(existing.views || 0, post.views || 0);
             existing.reposts = Math.max(existing.reposts || 0, post.reposts || 0);
             existing.replies = Math.max(existing.replies || 0, post.replies || 0);
             existing.bookmarks = Math.max(existing.bookmarks || 0, post.bookmarks || 0);
 
-            // Actualizar lastUpdated si el importado es más reciente
-            if (new Date(post.lastUpdated) > new Date(existing.lastUpdated)) {
+            // Fechas de avistamiento: firstSeen el más antiguo, lastUpdated el más reciente
+            if (post.firstSeen && (!existing.firstSeen || new Date(post.firstSeen) < new Date(existing.firstSeen))) {
+              existing.firstSeen = post.firstSeen;
+            }
+            if (post.lastUpdated && (!existing.lastUpdated || new Date(post.lastUpdated) > new Date(existing.lastUpdated))) {
               existing.lastUpdated = post.lastUpdated;
             }
+            
+            // Quedarse con el conteo mayor de apariciones para no inflar de más al importar
+            existing.appearanceCount = Math.max(existing.appearanceCount || 1, post.appearanceCount || 1);
             importedCount++;
           }
         });

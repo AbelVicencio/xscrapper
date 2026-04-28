@@ -145,9 +145,14 @@ fileInput?.addEventListener("change", async (e: any) => {
         updatePreview();
       }
 
+      const isReplace = window.confirm("¿Deseas REEMPLAZAR todos los posts existentes con los de este archivo?\n\n• [Aceptar]: Reemplazar por completo.\n• [Cancelar]: Conservar los actuales y agregar los nuevos.");
+
       const response = await chrome.runtime.sendMessage({ 
         type: "IMPORT_DATA", 
-        payload: { posts: postsToImport } 
+        payload: { 
+          posts: postsToImport,
+          replace: isReplace
+        } 
       });
 
       if (response?.success) {
@@ -274,6 +279,9 @@ const btnCloseDialog = document.getElementById("btnCloseDialog");
 const btnClearSearch = document.getElementById("btnClearSearch");
 const btnSearchGo = document.getElementById("btnSearchGo") as HTMLButtonElement;
 const urlPreview = document.getElementById("urlPreview");
+const queryPreview = document.getElementById("queryPreview");
+const btnCopyQuery = document.getElementById("btnCopyQuery");
+const btnCopyUrl = document.getElementById("btnCopyUrl");
 
 // Open/Close Dialog
 btnAdvSearch?.addEventListener("click", () => {
@@ -408,7 +416,19 @@ function buildSearchUrl(): string {
  * Updates the URL preview and the search button state in real-time.
  */
 function updatePreview(): void {
+  const query = buildSearchQuery();
   const url = buildSearchUrl();
+  
+  if (queryPreview) {
+    if (query) {
+      queryPreview.textContent = query;
+      queryPreview.classList.add("has-query");
+    } else {
+      queryPreview.textContent = "Escribe términos...";
+      queryPreview.classList.remove("has-query");
+    }
+  }
+
   if (urlPreview) {
     if (url) {
       urlPreview.textContent = url;
@@ -418,10 +438,34 @@ function updatePreview(): void {
       urlPreview.classList.remove("has-query");
     }
   }
+  
   if (btnSearchGo) {
     btnSearchGo.disabled = !url;
   }
 }
+
+// Clipboard copying logic
+async function copyToClipboard(text: string | null | undefined, type: string) {
+  if (!text) {
+    showToast(`⚠️ Nada que copiar en ${type}`);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`✅ ${type} copiada al portapapeles`);
+  } catch (err) {
+    showToast(`❌ Error al copiar ${type}`);
+    console.error(`Failed to copy ${type}:`, err);
+  }
+}
+
+btnCopyQuery?.addEventListener("click", () => {
+  copyToClipboard(buildSearchQuery(), "Búsqueda");
+});
+
+btnCopyUrl?.addEventListener("click", () => {
+  copyToClipboard(buildSearchUrl(), "URL");
+});
 
 function getSearchFormData() {
   return {

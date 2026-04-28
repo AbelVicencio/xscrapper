@@ -365,6 +365,47 @@
       flex-shrink: 0;
     }
 
+    .preview-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .preview-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .preview-header {
+      font-size: 9px;
+      color: #8b98a5;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .preview-box {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .btn-copy {
+      background: #1e2d3d;
+      border: 1px solid #2d3f50;
+      color: #e7e9ea;
+      width: 28px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+    .btn-copy:hover {
+      background: #2d3f50;
+    }
+
     /* URL preview bar */
     .url-preview {
       background: #0d1117;
@@ -379,6 +420,8 @@
       line-height: 1.4;
       border: 1px solid #2d3f50;
       transition: border-color 0.15s;
+      flex: 1;
+      margin: 0;
     }
     .url-preview.has-query {
       color: #8b98a5;
@@ -652,10 +695,32 @@
           </div>
         </div>
 
+        <!-- PREVIEWS SECTION -->
+        <div class="form-section">
+          <div class="form-section-title">
+            <span class="section-icon">🔗</span> Enlaces generados
+          </div>
+          <div class="preview-section" style="margin-top: 0;">
+            <div class="preview-item">
+              <div class="preview-header">Texto de Búsqueda</div>
+              <div class="preview-box">
+                <div class="url-preview" id="queryPreview">Escribe términos...</div>
+                <button class="btn-copy" id="btnCopyQuery" title="Copiar texto de búsqueda">📋</button>
+              </div>
+            </div>
+            <div class="preview-item">
+              <div class="preview-header">URL Generada</div>
+              <div class="preview-box">
+                <div class="url-preview" id="urlPreview">Escribe términos para ver la URL...</div>
+                <button class="btn-copy" id="btnCopyUrl" title="Copiar URL">📋</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /dialog-body -->
 
       <div class="dialog-footer">
-        <div class="url-preview" id="urlPreview">Escribe términos para ver la URL...</div>
         <button class="btn-search-go" id="btnSearchGo" disabled>
           <svg viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="7"/>

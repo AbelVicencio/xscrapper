@@ -1,6 +1,6 @@
 {
   "name": "scrap-twitter-x",
-  "version": "1.0.4",
+  "version": "1.0.10",
   "description": "Extensión de navegador para extraer información estructurada de tarjetas de contenido en X.com",
   "private": true,
   "scripts": {
