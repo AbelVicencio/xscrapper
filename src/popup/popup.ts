@@ -124,11 +124,30 @@ fileInput?.addEventListener("change", async (e: any) => {
   reader.onload = async (event) => {
     try {
       const json = JSON.parse(event.target?.result as string);
-      if (!Array.isArray(json)) throw new Error("Formato inválido");
+      
+      let postsToImport = [];
+      let advSearchToImport = null;
+
+      if (Array.isArray(json)) {
+        postsToImport = json;
+      } else if (json && Array.isArray(json.posts)) {
+        postsToImport = json.posts;
+        if (json.advanced_search) {
+          advSearchToImport = json.advanced_search;
+        }
+      } else {
+        throw new Error("Formato inválido");
+      }
+
+      if (advSearchToImport) {
+        await chrome.storage.local.set({ advanced_search: advSearchToImport });
+        applySearchFormData(advSearchToImport);
+        updatePreview();
+      }
 
       const response = await chrome.runtime.sendMessage({ 
         type: "IMPORT_DATA", 
-        payload: { posts: json } 
+        payload: { posts: postsToImport } 
       });
 
       if (response?.success) {
@@ -169,10 +188,16 @@ document.getElementById("btnScan")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btnExport")?.addEventListener("click", async () => {
-  const r = await chrome.storage.local.get("scraped_posts");
+  const r = await chrome.storage.local.get(["scraped_posts", "advanced_search"]);
   const posts = Object.values(r["scraped_posts"] || {});
   if (posts.length === 0) return showToast("⚠️ Sin datos");
-  const blob = new Blob([JSON.stringify(posts, null, 2)], { type: "application/json" });
+  
+  const exportData = {
+    posts,
+    advanced_search: r["advanced_search"] || getSearchFormData()
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   chrome.downloads.download({ url, filename: `x-export-${Date.now()}.json`, saveAs: true }, () => {
     chrome.storage.local.set({ last_export: new Date().toISOString() });
@@ -246,22 +271,60 @@ loadStats();
 const dialogOverlay = document.getElementById("dialogOverlay");
 const btnAdvSearch = document.getElementById("btnAdvSearch");
 const btnCloseDialog = document.getElementById("btnCloseDialog");
+const btnClearSearch = document.getElementById("btnClearSearch");
 const btnSearchGo = document.getElementById("btnSearchGo") as HTMLButtonElement;
 const urlPreview = document.getElementById("urlPreview");
 
 // Open/Close Dialog
 btnAdvSearch?.addEventListener("click", () => {
   dialogOverlay?.classList.add("open");
+  loadSearchForm();
 });
 
 btnCloseDialog?.addEventListener("click", () => {
   dialogOverlay?.classList.remove("open");
 });
 
+btnClearSearch?.addEventListener("click", () => {
+  const emptyData = {
+    sAllWords: "", sExactPhrase: "", sAnyWords: "", sNoneWords: "", sHashtags: "", sLang: "",
+    sFromAccount: "", sToAccount: "", sMention: "",
+    sMinReplies: "", sMinFaves: "", sMinRetweets: "",
+    sSince: "", sUntil: "",
+    sFilterImages: false, sFilterVideos: false, sFilterLinks: false
+  };
+  applySearchFormData(emptyData);
+  saveSearchForm();
+  updatePreview();
+  showToast("🗑️ Formulario limpio");
+});
+
 // Close on overlay click (outside dialog body)
 dialogOverlay?.addEventListener("click", (e) => {
   if (e.target === dialogOverlay) dialogOverlay.classList.remove("open");
 });
+
+/**
+ * Formatea una fecha del input (datetime-local o date) al formato que X entiende:
+ * YYYY-MM-DD_HH:MM:SS_UTC
+ */
+function formatXDate(val: string): string {
+  if (!val) return "";
+  // Si contiene T, es un datetime-local: "2023-10-27T14:30"
+  if (val.includes("T")) {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return val;
+    
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const min = String(d.getUTCMinutes()).padStart(2, '0');
+    
+    return `${yyyy}-${mm}-${dd}_${hh}:${min}:00_UTC`;
+  }
+  return val;
+}
 
 /**
  * Builds the raw query string from all form fields,
@@ -319,10 +382,10 @@ function buildSearchQuery(): string {
 
   // 4. Dates section
   const since = (document.getElementById("sSince") as HTMLInputElement)?.value;
-  if (since) parts.push(`since:${since}`);
+  if (since) parts.push(`since:${formatXDate(since)}`);
 
   const until = (document.getElementById("sUntil") as HTMLInputElement)?.value;
-  if (until) parts.push(`until:${until}`);
+  if (until) parts.push(`until:${formatXDate(until)}`);
 
   // 5. Media filters
   if ((document.getElementById("sFilterImages") as HTMLInputElement)?.checked) parts.push("filter:images");
@@ -360,11 +423,84 @@ function updatePreview(): void {
   }
 }
 
+function getSearchFormData() {
+  return {
+    sAllWords: (document.getElementById("sAllWords") as HTMLInputElement)?.value,
+    sExactPhrase: (document.getElementById("sExactPhrase") as HTMLInputElement)?.value,
+    sAnyWords: (document.getElementById("sAnyWords") as HTMLInputElement)?.value,
+    sNoneWords: (document.getElementById("sNoneWords") as HTMLInputElement)?.value,
+    sHashtags: (document.getElementById("sHashtags") as HTMLInputElement)?.value,
+    sLang: (document.getElementById("sLang") as HTMLSelectElement)?.value,
+    sFromAccount: (document.getElementById("sFromAccount") as HTMLInputElement)?.value,
+    sToAccount: (document.getElementById("sToAccount") as HTMLInputElement)?.value,
+    sMention: (document.getElementById("sMention") as HTMLInputElement)?.value,
+    sMinReplies: (document.getElementById("sMinReplies") as HTMLInputElement)?.value,
+    sMinFaves: (document.getElementById("sMinFaves") as HTMLInputElement)?.value,
+    sMinRetweets: (document.getElementById("sMinRetweets") as HTMLInputElement)?.value,
+    sSince: (document.getElementById("sSince") as HTMLInputElement)?.value,
+    sUntil: (document.getElementById("sUntil") as HTMLInputElement)?.value,
+    sFilterImages: (document.getElementById("sFilterImages") as HTMLInputElement)?.checked,
+    sFilterVideos: (document.getElementById("sFilterVideos") as HTMLInputElement)?.checked,
+    sFilterLinks: (document.getElementById("sFilterLinks") as HTMLInputElement)?.checked,
+  };
+}
+
+async function saveSearchForm() {
+  const data = getSearchFormData();
+  await chrome.storage.local.set({ advanced_search: data });
+}
+
+async function loadSearchForm() {
+  const r = await chrome.storage.local.get("advanced_search");
+  if (r.advanced_search) {
+    applySearchFormData(r.advanced_search);
+    updatePreview();
+  }
+}
+
+function applySearchFormData(data: any) {
+  if (!data) return;
+  const setVal = (id: string, val: any) => {
+    const el = document.getElementById(id);
+    if (el) {
+      if (el instanceof HTMLInputElement && el.type === "checkbox") {
+        el.checked = !!val;
+      } else {
+        (el as HTMLInputElement | HTMLSelectElement).value = val || "";
+      }
+    }
+  };
+
+  setVal("sAllWords", data.sAllWords);
+  setVal("sExactPhrase", data.sExactPhrase);
+  setVal("sAnyWords", data.sAnyWords);
+  setVal("sNoneWords", data.sNoneWords);
+  setVal("sHashtags", data.sHashtags);
+  setVal("sLang", data.sLang);
+  setVal("sFromAccount", data.sFromAccount);
+  setVal("sToAccount", data.sToAccount);
+  setVal("sMention", data.sMention);
+  setVal("sMinReplies", data.sMinReplies);
+  setVal("sMinFaves", data.sMinFaves);
+  setVal("sMinRetweets", data.sMinRetweets);
+  setVal("sSince", data.sSince);
+  setVal("sUntil", data.sUntil);
+  setVal("sFilterImages", data.sFilterImages);
+  setVal("sFilterVideos", data.sFilterVideos);
+  setVal("sFilterLinks", data.sFilterLinks);
+}
+
 // Listen for changes on ALL form inputs inside the dialog
 const searchFormInputs = document.querySelectorAll("#searchForm input, #searchForm select");
 searchFormInputs.forEach(input => {
-  input.addEventListener("input", updatePreview);
-  input.addEventListener("change", updatePreview);
+  input.addEventListener("input", () => {
+    updatePreview();
+    saveSearchForm();
+  });
+  input.addEventListener("change", () => {
+    updatePreview();
+    saveSearchForm();
+  });
 });
 
 // Run search: navigate the active tab to the constructed URL

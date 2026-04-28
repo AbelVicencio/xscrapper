@@ -259,13 +259,29 @@
     }
     .btn-close-dialog:hover { background: rgba(255,255,255,0.3); }
 
+    .btn-clear-dialog {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #fff;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      transition: background 0.15s;
+    }
+    .btn-clear-dialog:hover { background: rgba(244, 33, 46, 0.4); }
+
     .dialog-body {
       flex: 1;
       overflow-y: auto;
-      padding: 10px 14px;
+      padding: 8px 10px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
 
     /* Scrollbar styling */
@@ -276,44 +292,45 @@
     .form-section {
       background: #1e2d3d;
       border-radius: 8px;
-      padding: 10px;
+      padding: 8px;
       border: 1px solid #2d3f50;
     }
     .form-section-title {
-      font-size: 10px;
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      color: #8b98a5;
-      margin-bottom: 8px;
+      color: #1d9bf0;
+      margin-bottom: 6px;
       display: flex;
       align-items: center;
       gap: 5px;
-      font-weight: 600;
+      font-weight: 700;
     }
     .form-section-title .section-icon { font-size: 12px; }
 
     .form-group {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .form-group:last-child { margin-bottom: 0; }
     .form-group label {
       display: block;
-      font-size: 10px;
-      color: #8b98a5;
-      margin-bottom: 3px;
-      font-weight: 500;
+      font-size: 11px;
+      color: #e7e9ea;
+      margin-bottom: 4px;
+      font-weight: 600;
     }
     .form-group input[type="text"],
     .form-group input[type="number"],
     .form-group input[type="date"],
+    .form-group input[type="datetime-local"],
     .form-group select {
       width: 100%;
-      padding: 6px 8px;
-      background: #15202b;
-      border: 1px solid #2d3f50;
+      padding: 8px 10px;
+      background: #0d1117;
+      border: 1px solid #38444d;
       border-radius: 6px;
-      color: #e7e9ea;
-      font-size: 11px;
+      color: #ffffff;
+      font-size: 12px;
       font-family: inherit;
       transition: border-color 0.15s;
       outline: none;
@@ -324,13 +341,13 @@
       box-shadow: 0 0 0 2px rgba(120, 86, 255, 0.15);
     }
     .form-group input::placeholder {
-      color: #536471;
+      color: #71767b;
       font-style: italic;
     }
     .form-group .hint {
-      font-size: 9px;
-      color: #536471;
-      margin-top: 2px;
+      font-size: 10px;
+      color: #8b98a5;
+      margin-top: 3px;
     }
 
     .form-row {
@@ -413,8 +430,8 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 10px;
-      color: #8b98a5;
+      font-size: 11px;
+      color: #e7e9ea;
       cursor: pointer;
     }
     .filter-check input[type="checkbox"] {
@@ -502,7 +519,10 @@
     <div class="dialog">
       <div class="dialog-header">
         <h2><span>🔬</span> Búsqueda Avanzada</h2>
-        <button class="btn-close-dialog" id="btnCloseDialog">✕</button>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-clear-dialog" id="btnClearSearch" title="Limpiar formulario">🗑️</button>
+          <button class="btn-close-dialog" id="btnCloseDialog">✕</button>
+        </div>
       </div>
 
       <div class="dialog-body" id="searchForm">
@@ -604,15 +624,13 @@
           <div class="form-section-title">
             <span class="section-icon">📅</span> Rango de fechas
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="sSince">Desde</label>
-              <input type="date" id="sSince">
-            </div>
-            <div class="form-group">
-              <label for="sUntil">Hasta</label>
-              <input type="date" id="sUntil">
-            </div>
+          <div class="form-group">
+            <label for="sSince">Desde</label>
+            <input type="datetime-local" id="sSince">
+          </div>
+          <div class="form-group">
+            <label for="sUntil">Hasta</label>
+            <input type="datetime-local" id="sUntil">
           </div>
         </div>
 
