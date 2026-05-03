@@ -322,6 +322,7 @@
     .form-group input[type="text"],
     .form-group input[type="number"],
     .form-group input[type="date"],
+    .form-group input[type="time"],
     .form-group input[type="datetime-local"],
     .form-group select {
       width: 100%;
@@ -334,6 +335,7 @@
       font-family: inherit;
       transition: border-color 0.15s;
       outline: none;
+      color-scheme: dark;
     }
     .form-group input:focus,
     .form-group select:focus {
@@ -491,7 +493,7 @@
     <div style="display: flex; align-items: center; gap: 8px;">
       <span class="header-icon">🕵️‍♂️</span>
       <div>
-        <h1>X Scraper</h1>
+        <h1>X Scraper <span style="font-size: 9px; opacity: 0.6; font-weight: 400; margin-left: 4px;">v1.20</span></h1>
         <p id="activeStatusText">Cargando...</p>
       </div>
     </div>
@@ -668,12 +670,18 @@
             <span class="section-icon">📅</span> Rango de fechas
           </div>
           <div class="form-group">
-            <label for="sSince">Desde</label>
-            <input type="datetime-local" id="sSince">
+            <label>Desde</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="date" id="sSinceDate" style="flex: 2;">
+              <input type="time" id="sSinceTime" style="flex: 1;">
+            </div>
           </div>
           <div class="form-group">
-            <label for="sUntil">Hasta</label>
-            <input type="datetime-local" id="sUntil">
+            <label>Hasta</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="date" id="sUntilDate" style="flex: 2;">
+              <input type="time" id="sUntilTime" style="flex: 1;">
+            </div>
           </div>
         </div>
 

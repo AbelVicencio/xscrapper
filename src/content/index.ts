@@ -66,6 +66,9 @@ async function main() {
     else if (message.type === "CLEAR_MEMORY") {
       clearAll().then(() => sendResponse({ success: true }));
     }
+    else if (message.type === "FORCE_PERSIST") {
+      persistToStorage().then(() => sendResponse({ success: true }));
+    }
     
     return true; 
   });

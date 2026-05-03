@@ -51,6 +51,19 @@ function incrementVersion() {
         pkg.version = manifest.version;
         fs.writeFileSync(packagePath, JSON.stringify(pkg, null, 2));
       }
+
+      // Actualizar versión en popup.html
+      const popupPath = path.resolve("./src/popup/popup.html");
+      if (fs.existsSync(popupPath)) {
+        let popupHtml = fs.readFileSync(popupPath, "utf-8");
+        // Buscar el patrón <h1>X Scraper <span ...>vX.XX</span></h1>
+        const versionRegex = /(<h1>X Scraper <span[^>]*>v)([\d\.]+)(<\/span><\/h1>)/;
+        if (versionRegex.test(popupHtml)) {
+          popupHtml = popupHtml.replace(versionRegex, `$1${manifest.version}$3`);
+          fs.writeFileSync(popupPath, popupHtml);
+          console.log(`📝 Updated version in popup.html to ${manifest.version}`);
+        }
+      }
     }
   } catch (err) {
     console.error("Error bumping version:", err);

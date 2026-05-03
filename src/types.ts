@@ -44,8 +44,16 @@ export interface PostData {
   appearanceCount: number;
   /** Indica si el texto fue capturado desde la vista detallada */
   isDetailView: boolean;
-  /** URLs de medios adjuntos (imágenes, videos) */
-  mediaUrls: string[];
+  /** URLs de imágenes adjuntas */
+  imageUrls: string[];
+  /** URLs de videos adjuntos */
+  videoUrls: string[];
+  /** URLs de enlaces externos (t.co u otros) */
+  linkUrls?: string[];
+  /** Indica si es una cita (Quote Tweet) */
+  isQuote: boolean;
+  /** ID del tweet citado, si aplica */
+  quotedPostId?: string | null;
   /** Idioma detectado del texto */
   lang?: string | null;
 }

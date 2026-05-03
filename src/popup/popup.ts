@@ -192,10 +192,27 @@ document.getElementById("btnScan")?.addEventListener("click", async () => {
   }
 });
 
+// Helper para forzar guardado desde memoria antes de exportar
+async function forcePersistBeforeExport() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, { type: "FORCE_PERSIST" });
+    }
+  } catch (e) {
+    // Si la pestaña falla, no hacemos nada crítico, solo advertimos en consola
+    console.warn("No se pudo forzar persistencia (¿pestaña inactiva?)", e);
+  }
+}
+
 document.getElementById("btnExport")?.addEventListener("click", async () => {
+  await forcePersistBeforeExport();
   const r = await chrome.storage.local.get(["scraped_posts", "advanced_search"]);
-  const posts = Object.values(r["scraped_posts"] || {});
+  const posts = Object.values(r["scraped_posts"] || {}) as any[];
   if (posts.length === 0) return showToast("⚠️ Sin datos");
+  
+  // Ordenar por vistas (descendente)
+  posts.sort((a, b) => (b.views || 0) - (a.views || 0));
   
   const exportData = {
     posts,
@@ -210,23 +227,32 @@ document.getElementById("btnExport")?.addEventListener("click", async () => {
 });
 
 document.getElementById("btnExportCSV")?.addEventListener("click", async () => {
+  await forcePersistBeforeExport();
   const res = await chrome.storage.local.get("scraped_posts");
   const posts = Object.values(res["scraped_posts"] || {}) as any[];
   if (posts.length === 0) return showToast("⚠️ Sin datos");
 
+  // Ordenar por vistas (descendente)
+  posts.sort((a, b) => (b.views || 0) - (a.views || 0));
+
   // 1. Columnas base
-  const headers = ["id", "author", "displayName", "date", "text", "url", "likes", "views", "reposts", "replies", "bookmarks", "lang", "appearanceCount", "isDetailView"];
+  const headers = ["id", "author", "displayName", "date", "text", "url", "isQuote", "quotedPostId", "likes", "views", "reposts", "replies", "bookmarks", "lang", "appearanceCount", "isDetailView"];
   
   // 2. Calcular máximo de archivos multimedia para las columnas dinámicas
-  let maxMedia = 0;
+  let maxImages = 0;
+  let maxVideos = 0;
+  let maxLinks = 0;
   posts.forEach(p => {
-    if (p.mediaUrls && p.mediaUrls.length > maxMedia) maxMedia = p.mediaUrls.length;
+    const pImages = p.imageUrls || p.mediaUrls; // soportar legacy
+    if (pImages && pImages.length > maxImages) maxImages = pImages.length;
+    if (p.videoUrls && p.videoUrls.length > maxVideos) maxVideos = p.videoUrls.length;
+    if (p.linkUrls && p.linkUrls.length > maxLinks) maxLinks = p.linkUrls.length;
   });
 
-  // Añadir encabezados de media (mediaUrl1, mediaUrl2...)
-  for (let i = 1; i <= maxMedia; i++) {
-    headers.push(`mediaUrl${i}`);
-  }
+  // Añadir encabezados de media y video
+  for (let i = 1; i <= maxImages; i++) headers.push(`imageUrl${i}`);
+  for (let i = 1; i <= maxVideos; i++) headers.push(`mediaVideo${i}`);
+  for (let i = 1; i <= maxLinks; i++) headers.push(`link${i}`);
 
   const rows = [headers.join(",")];
 
@@ -236,11 +262,23 @@ document.getElementById("btnExportCSV")?.addEventListener("click", async () => {
       // Manejo de ID (Excel Fix)
       if (h === "id") return `="${p[h] ?? ""}"`;
       
-      // Manejo de URLs multimedia dinámicas
-      if (h.startsWith("mediaUrl")) {
-        const index = parseInt(h.replace("mediaUrl", "")) - 1;
-        const mUrl = (p.mediaUrls && p.mediaUrls[index]) ? p.mediaUrls[index] : "";
-        return `"${mUrl}"`;
+      // Manejo de URLs multimedia (imágenes)
+      if (h.startsWith("imageUrl")) {
+        const index = parseInt(h.replace("imageUrl", "")) - 1;
+        const pImages = p.imageUrls || p.mediaUrls;
+        return `"${(pImages && pImages[index]) || ""}"`;
+      }
+
+      // Manejo de URLs de video
+      if (h.startsWith("mediaVideo")) {
+        const index = parseInt(h.replace("mediaVideo", "")) - 1;
+        return `"${(p.videoUrls && p.videoUrls[index]) || ""}"`;
+      }
+
+      // Manejo de enlaces externos
+      if (h.startsWith("link")) {
+        const index = parseInt(h.replace("link", "")) - 1;
+        return `"${(p.linkUrls && p.linkUrls[index]) || ""}"`;
       }
 
       // Manejo de otros campos
@@ -298,7 +336,7 @@ btnClearSearch?.addEventListener("click", () => {
     sAllWords: "", sExactPhrase: "", sAnyWords: "", sNoneWords: "", sHashtags: "", sLang: "",
     sFromAccount: "", sToAccount: "", sMention: "",
     sMinReplies: "", sMinFaves: "", sMinRetweets: "",
-    sSince: "", sUntil: "",
+    sSinceDate: "", sSinceTime: "", sUntilDate: "", sUntilTime: "",
     sFilterImages: false, sFilterVideos: false, sFilterLinks: false
   };
   applySearchFormData(emptyData);
@@ -313,25 +351,25 @@ dialogOverlay?.addEventListener("click", (e) => {
 });
 
 /**
- * Formatea una fecha del input (datetime-local o date) al formato que X entiende:
- * YYYY-MM-DD_HH:MM:SS_UTC
+ * Formatea una fecha y hora al formato que X entiende.
+ * Si solo hay fecha, retorna YYYY-MM-DD.
+ * Si hay fecha y hora, la convierte a UTC: YYYY-MM-DD_HH:MM:SS_UTC
  */
-function formatXDate(val: string): string {
-  if (!val) return "";
-  // Si contiene T, es un datetime-local: "2023-10-27T14:30"
-  if (val.includes("T")) {
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return val;
-    
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const hh = String(d.getUTCHours()).padStart(2, '0');
-    const min = String(d.getUTCMinutes()).padStart(2, '0');
-    
-    return `${yyyy}-${mm}-${dd}_${hh}:${min}:00_UTC`;
-  }
-  return val;
+function formatXDate(dateVal: string, timeVal?: string): string {
+  if (!dateVal) return "";
+  
+  if (!timeVal) return dateVal;
+
+  const d = new Date(`${dateVal}T${timeVal}`);
+  if (isNaN(d.getTime())) return dateVal;
+  
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  
+  return `${yyyy}-${mm}-${dd}_${hh}:${min}:00_UTC`;
 }
 
 /**
@@ -389,11 +427,13 @@ function buildSearchQuery(): string {
   if (minRetweets && parseInt(minRetweets) > 0) parts.push(`min_retweets:${minRetweets}`);
 
   // 4. Dates section
-  const since = (document.getElementById("sSince") as HTMLInputElement)?.value;
-  if (since) parts.push(`since:${formatXDate(since)}`);
+  const sinceDate = (document.getElementById("sSinceDate") as HTMLInputElement)?.value;
+  const sinceTime = (document.getElementById("sSinceTime") as HTMLInputElement)?.value;
+  if (sinceDate) parts.push(`since:${formatXDate(sinceDate, sinceTime)}`);
 
-  const until = (document.getElementById("sUntil") as HTMLInputElement)?.value;
-  if (until) parts.push(`until:${formatXDate(until)}`);
+  const untilDate = (document.getElementById("sUntilDate") as HTMLInputElement)?.value;
+  const untilTime = (document.getElementById("sUntilTime") as HTMLInputElement)?.value;
+  if (untilDate) parts.push(`until:${formatXDate(untilDate, untilTime)}`);
 
   // 5. Media filters
   if ((document.getElementById("sFilterImages") as HTMLInputElement)?.checked) parts.push("filter:images");
@@ -481,8 +521,10 @@ function getSearchFormData() {
     sMinReplies: (document.getElementById("sMinReplies") as HTMLInputElement)?.value,
     sMinFaves: (document.getElementById("sMinFaves") as HTMLInputElement)?.value,
     sMinRetweets: (document.getElementById("sMinRetweets") as HTMLInputElement)?.value,
-    sSince: (document.getElementById("sSince") as HTMLInputElement)?.value,
-    sUntil: (document.getElementById("sUntil") as HTMLInputElement)?.value,
+    sSinceDate: (document.getElementById("sSinceDate") as HTMLInputElement)?.value,
+    sSinceTime: (document.getElementById("sSinceTime") as HTMLInputElement)?.value,
+    sUntilDate: (document.getElementById("sUntilDate") as HTMLInputElement)?.value,
+    sUntilTime: (document.getElementById("sUntilTime") as HTMLInputElement)?.value,
     sFilterImages: (document.getElementById("sFilterImages") as HTMLInputElement)?.checked,
     sFilterVideos: (document.getElementById("sFilterVideos") as HTMLInputElement)?.checked,
     sFilterLinks: (document.getElementById("sFilterLinks") as HTMLInputElement)?.checked,
@@ -527,8 +569,26 @@ function applySearchFormData(data: any) {
   setVal("sMinReplies", data.sMinReplies);
   setVal("sMinFaves", data.sMinFaves);
   setVal("sMinRetweets", data.sMinRetweets);
-  setVal("sSince", data.sSince);
-  setVal("sUntil", data.sUntil);
+
+  // Compatibilidad con datos antiguos guardados como datetime-local
+  if (data.sSince && !data.sSinceDate) {
+    if (data.sSince.includes("T")) {
+      const [d, t] = data.sSince.split("T");
+      data.sSinceDate = d; data.sSinceTime = t;
+    } else { data.sSinceDate = data.sSince; }
+  }
+  if (data.sUntil && !data.sUntilDate) {
+    if (data.sUntil.includes("T")) {
+      const [d, t] = data.sUntil.split("T");
+      data.sUntilDate = d; data.sUntilTime = t;
+    } else { data.sUntilDate = data.sUntil; }
+  }
+
+  setVal("sSinceDate", data.sSinceDate);
+  setVal("sSinceTime", data.sSinceTime);
+  setVal("sUntilDate", data.sUntilDate);
+  setVal("sUntilTime", data.sUntilTime);
+
   setVal("sFilterImages", data.sFilterImages);
   setVal("sFilterVideos", data.sFilterVideos);
   setVal("sFilterLinks", data.sFilterLinks);

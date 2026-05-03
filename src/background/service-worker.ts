@@ -71,14 +71,29 @@ chrome.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
             if (!existing.date && post.date) existing.date = post.date;
             if (!existing.url && post.url) existing.url = post.url;
             if (!existing.lang && post.lang) existing.lang = post.lang;
+            
+            // Contexto de cita
+            if (post.isQuote !== undefined) existing.isQuote = post.isQuote;
+            if (post.quotedPostId && !existing.quotedPostId) existing.quotedPostId = post.quotedPostId;
 
             // Conservar información de vista de detalle (es más valiosa)
             existing.isDetailView = existing.isDetailView || (post.isDetailView || false);
 
-            // Unir medios (mediaUrls) evitando duplicados
-            if (post.mediaUrls && post.mediaUrls.length > 0) {
-              const mergedMedia = new Set([...(existing.mediaUrls || []), ...post.mediaUrls]);
-              existing.mediaUrls = Array.from(mergedMedia);
+            // Unir imágenes (imageUrls) evitando duplicados y soportar legacy (mediaUrls)
+            const postImages = post.imageUrls || (post as any).mediaUrls;
+            if (postImages && postImages.length > 0) {
+              const existingImages = existing.imageUrls || (existing as any).mediaUrls || [];
+              const mergedImages = new Set([...existingImages, ...postImages]);
+              existing.imageUrls = Array.from(mergedImages);
+              delete (existing as any).mediaUrls; // Limpiar legacy
+            }
+            if (post.videoUrls && post.videoUrls.length > 0) {
+              const mergedVideo = new Set([...(existing.videoUrls || []), ...post.videoUrls]);
+              existing.videoUrls = Array.from(mergedVideo);
+            }
+            if (post.linkUrls && post.linkUrls.length > 0) {
+              const mergedLinks = new Set([...(existing.linkUrls || []), ...post.linkUrls]);
+              existing.linkUrls = Array.from(mergedLinks);
             }
 
             // Max métricas (quedarse con los valores más altos)

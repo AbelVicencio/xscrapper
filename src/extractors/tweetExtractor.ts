@@ -28,6 +28,16 @@ const SELECTORS = {
   bookmarkBtn: '[data-testid="bookmark"], [data-testid="removeBookmark"]',
   /** Contador de vistas */
   viewCount: 'a[href*="/analytics"]',
+  /** Contenedor de nombre de usuario y handle */
+  userName: '[data-testid="User-Name"], [data-testid="UserNames"]',
+  /** Contenedor de tweet citado */
+  quoteTweet: '[data-testid="quoteTweet"]',
+  /** Contenedor de video embebido */
+  videoComponent: '[data-testid="videoComponent"], [data-testid="videoPlayer"]',
+  /** Contenedor de foto del tweet */
+  tweetPhoto: '[data-testid="tweetPhoto"]',
+  /** Tarjetas (pueden contener videos) */
+  cardWrapper: '[data-testid="card.wrapper"]',
 } as const;
 
 /**
@@ -91,7 +101,9 @@ function extractMetrics(article: Element): PostMetrics {
     const btn = article.querySelector(selector);
     if (!btn) return null;
     const ariaLabel = btn.getAttribute("aria-label");
-    return parseAriaMetric(ariaLabel);
+    const value = parseAriaMetric(ariaLabel);
+    // Estandarizar: si el botón existe pero no tiene número en el aria-label, es 0
+    return value === null ? 0 : value;
   };
 
   // Vistas: pueden estar en un enlace a analytics o como texto visible
@@ -105,6 +117,8 @@ function extractMetrics(article: Element): PostMetrics {
       const visibleText = viewEl.textContent?.trim();
       views = parseMetricString(visibleText);
     }
+    // Si sigue siendo null pero el elemento existe, es 0
+    if (views === null) views = 0;
   }
 
   return {
@@ -120,22 +134,55 @@ function extractMetrics(article: Element): PostMetrics {
  * Extrae información del autor desde el article.
  */
 function extractAuthor(article: Element): { author: string; displayName: string } {
-  // Buscar todos los enlaces dentro del tweet
-  const links = article.querySelectorAll('a[role="link"]');
+  const userNameEl = article.querySelector(SELECTORS.userName);
   let author = "";
   let displayName = "";
 
-  for (const link of links) {
-    const href = link.getAttribute("href") || "";
-    // El enlace al perfil tiene formato /{username}
-    if (href.match(/^\/[a-zA-Z0-9_]+$/) && !href.includes("/status/")) {
-      author = href.replace("/", "");
-      // El display name está en un span dentro de este enlace o hermano cercano
-      const nameSpan = link.querySelector("span");
-      if (nameSpan && nameSpan.textContent) {
-        displayName = nameSpan.textContent.trim();
+  if (userNameEl) {
+    // innerText es ideal aquí porque inserta saltos de línea naturales entre bloques
+    // Ejemplo: "Javier Hidalgo\n@Javier_Hidalgo"
+    const rawText = (userNameEl as HTMLElement).innerText || extractText(userNameEl);
+    
+    // Intentar separar por líneas primero
+    const parts = rawText.split(/\n+/).map(p => p.trim()).filter(p => p);
+    
+    if (parts.length >= 2) {
+      // Casi siempre: [0] es Nombre, [1] es @handle
+      const first = parts[0];
+      const second = parts.find(p => p.startsWith('@'));
+      
+      if (second) {
+        author = second.replace('@', '');
+        displayName = first;
       }
-      break;
+    }
+    
+    // Si no funcionó por líneas, intentar por regex sobre el texto corrido
+    if (!author || !displayName) {
+      const cleanText = rawText.replace(/\s+/g, ' ');
+      const match = cleanText.match(/^(.+?)\s*(@[\w_]+)/);
+      if (match) {
+        displayName = match[1].trim();
+        author = match[2].replace('@', '');
+      }
+    }
+  }
+
+  // Fallback final: buscar cualquier enlace que parezca de perfil
+  if (!author || !displayName) {
+    const links = article.querySelectorAll('a[role="link"]');
+    for (const link of links) {
+      const href = link.getAttribute("href") || "";
+      if (href.match(/^\/[a-zA-Z0-9_]{1,15}$/) && !href.includes("/status/") && !href.includes("/home")) {
+        const foundAuthor = href.replace("/", "");
+        if (!author) author = foundAuthor;
+        
+        const linkText = (link as HTMLElement).innerText?.trim();
+        if (linkText && !linkText.startsWith('@') && !displayName) {
+          displayName = linkText;
+        }
+      }
+      if (author && displayName) break;
     }
   }
 
@@ -143,26 +190,189 @@ function extractAuthor(article: Element): { author: string; displayName: string 
 }
 
 /**
- * Extrae URLs de medios adjuntos (imágenes, videos).
+ * Búsqueda recursiva y robusta para extraer la URL del MP4 de mayor calidad del estado de React.
  */
-function extractMediaUrls(article: Element): string[] {
-  const urls: string[] = [];
+function findVideoUrlInObject(obj: any, depth = 0, visited = new WeakSet()): string | null {
+  if (depth > 15 || !obj || typeof obj !== 'object') return null;
+  if (visited.has(obj)) return null;
+  visited.add(obj);
 
-  // Imágenes del tweet
+  // Check for variants array directamente
+  const variants = obj.variants || obj.video_info?.variants;
+  if (Array.isArray(variants)) {
+    const mp4Variants = variants
+      .filter((v: any) => v.content_type === 'video/mp4' && v.url)
+      .sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+    
+    if (mp4Variants.length > 0) {
+      return mp4Variants[0].url;
+    }
+  }
+
+  // Iterate over properties
+  for (const key of Object.keys(obj)) {
+    // Skip React internal properties that might cause deep recursion or circular refs
+    if (key === 'return' || key === 'child' || key === 'sibling' || key === '_owner' || key.startsWith('__')) continue;
+    
+    const val = obj[key];
+    if (typeof val === 'object' && val !== null) {
+      const result = findVideoUrlInObject(val, depth + 1, visited);
+      if (result) return result;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Intenta extraer URLs directas de videos MP4 utilizando el estado interno de React (React Fiber).
+ * Esto permite evitar los enlaces "blob:" y obtener la variante de máxima calidad sin peticiones de red adicionales.
+ */
+function extractVideoFromReactFiber(article: Element): string | null {
+  try {
+    // Buscar el nodo DOM del video (si no existe, usa el article)
+    const videoNode = article.querySelector('[data-testid="videoComponent"], [data-testid="videoPlayer"]') || article;
+    
+    let fiberKey = Object.keys(videoNode).find(key => key.startsWith('__reactFiber$'));
+    let fiber = fiberKey ? (videoNode as any)[fiberKey] : null;
+
+    if (!fiber) {
+      const propsKey = Object.keys(videoNode).find(key => key.startsWith('__reactProps$'));
+      if (propsKey) {
+        fiber = { memoizedProps: (videoNode as any)[propsKey], return: null };
+      }
+    }
+
+    if (!fiber) return null;
+
+    let current = fiber;
+    let attempts = 0;
+    while (current && attempts < 15) {
+      const visited = new WeakSet();
+      
+      if (current.memoizedProps) {
+        const url = findVideoUrlInObject(current.memoizedProps, 0, visited);
+        if (url) return url;
+      }
+      
+      if (current.pendingProps) {
+        const url = findVideoUrlInObject(current.pendingProps, 0, visited);
+        if (url) return url;
+      }
+      
+      current = current.return;
+      attempts++;
+    }
+  } catch (error) {
+    console.warn("React Fiber video extraction failed:", error);
+  }
+  return null;
+}
+
+/**
+ * Resultado de la extracción de medios, separando imágenes y videos.
+ */
+interface ExtractedMedia {
+  imageUrls: string[];
+  videoUrls: string[];
+  linkUrls: string[];
+}
+
+/**
+ * Extrae URLs de medios adjuntos.
+ * Imágenes: captura desde img[src*="pbs.twimg.com/media"]
+ * Videos: captura poster, <source> mp4, y construye URL canónica
+ */
+function extractMediaUrls(article: Element, permalink: string): ExtractedMedia {
+  const imageUrls: string[] = [];
+  const videoUrls: string[] = [];
+  const linkUrls: string[] = [];
+  const seen = new Set<string>();
+
+  const addUnique = (arr: string[], url: string) => {
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      arr.push(url);
+    }
+  };
+
+  // ── IMÁGENES ──────────────────────────────────────────
+  // Imágenes directas del tweet (pbs.twimg.com/media/...)
   const images = article.querySelectorAll('img[src*="pbs.twimg.com/media"]');
   for (const img of images) {
     const src = img.getAttribute("src");
-    if (src) urls.push(src);
+    if (src) addUnique(imageUrls, src);
   }
 
-  // Videos (poster thumbnails)
+  // ── VIDEOS ────────────────────────────────────────────
+  // Estrategia 0 (Stealth): Extraer video directo del estado de React Fiber
+  const stealthVideoUrl = extractVideoFromReactFiber(article);
+  if (stealthVideoUrl) {
+    addUnique(videoUrls, stealthVideoUrl);
+  }
+
+  // Estrategia 3: Buscar thumbnails que son específicamente de video o media player
+  const videoThumbs = article.querySelectorAll('img[src*="ext_tw_video_thumb"], img[src*="tweet_video_thumb"], img[src*="amplify_video_thumb"], img[src*="media_proxy"]');
+  for (const img of videoThumbs) {
+    const src = img.getAttribute("src");
+    // El usuario prefiere las miniaturas en imageUrls
+    if (src) addUnique(imageUrls, src);
+  }
+
+  // Estrategia 1: Buscar componente de video por data-testid
+  const videoComponent = article.querySelector(SELECTORS.videoComponent);
+  const cardWrapper = article.querySelector(SELECTORS.cardWrapper);
+  const hasVideoSuspect = !!videoComponent || !!cardWrapper || videoThumbs.length > 0;
+
+  // Estrategia 2: Buscar el tag <video> y su poster
   const videos = article.querySelectorAll("video");
   for (const video of videos) {
     const poster = video.getAttribute("poster");
-    if (poster) urls.push(poster);
+    // El usuario prefiere que los posters de video vayan a imágenes
+    if (poster) addUnique(imageUrls, poster);
+
+    const videoSrc = video.getAttribute("src");
+    if (videoSrc && !videoSrc.startsWith("blob:")) {
+      addUnique(videoUrls, videoSrc);
+    }
   }
 
-  return urls;
+  // Estrategia 4: Si hay un videoComponent o Card, buscar cualquier imagen dentro (poster)
+  if (hasVideoSuspect) {
+    const container = videoComponent || cardWrapper;
+    if (container) {
+      const imgs = container.querySelectorAll('img');
+      for (const img of imgs) {
+        const src = img.getAttribute("src");
+        if (src && !seen.has(src)) addUnique(imageUrls, src);
+      }
+    }
+  }
+
+  // Estrategia 5: URL canónica /video/1
+  // Si detectamos un video o el contenedor de video, agregamos el permalink de video
+  if ((videos.length > 0 || hasVideoSuspect) && permalink) {
+    const canonicalVideoUrl = `https://x.com${permalink}/video/1`;
+    addUnique(videoUrls, canonicalVideoUrl);
+  }
+
+  // ── ENLACES EXTERNOS ──────────────────────────────────
+  // Buscar enlaces de video o multimedia en todo el article, y también enlaces genéricos (t.co)
+  const allLinks = article.querySelectorAll('a[href*="video.twimg.com"], a[href*="amplify_video"], a[href*="/video/"], a[href*="t.co/"]');
+  for (const link of allLinks) {
+    const href = link.getAttribute("href");
+    if (href) {
+      const fullUrl = href.startsWith('http') ? href : `https://x.com${href}`;
+      // Si es un enlace de video directamente, lo ponemos en videos, de lo contrario en enlaces
+      if (href.includes("video.twimg.com") || href.includes("amplify_video") || href.includes("/video/")) {
+        addUnique(videoUrls, fullUrl);
+      } else {
+        addUnique(linkUrls, fullUrl);
+      }
+    }
+  }
+
+  return { imageUrls, videoUrls, linkUrls };
 }
 
 /**
@@ -203,14 +413,25 @@ export function extractPostFromNode(node: Element): PostData | null {
   // Métricas
   const metrics = extractMetrics(article);
 
-  // Medios
-  const mediaUrls = extractMediaUrls(article);
+  // Medios (imágenes y videos por separado) y enlaces
+  const { imageUrls, videoUrls, linkUrls } = extractMediaUrls(article, permalink);
 
   // Idioma
   const lang = tweetTextEl?.getAttribute("lang") || null;
 
   // URL canónica
   const url = permalink ? `https://x.com${permalink}` : "";
+
+  // Citas (Quote Tweets)
+  const quoteBox = article.querySelector(SELECTORS.quoteTweet);
+  const isQuote = !!quoteBox;
+  let quotedPostId: string | null = null;
+  if (isQuote && quoteBox) {
+    const quoteLink = quoteBox.querySelector('a[href*="/status/"]');
+    if (quoteLink) {
+      quotedPostId = extractTweetId(quoteLink.getAttribute("href") || "");
+    }
+  }
 
   const now = new Date().toISOString();
 
@@ -232,8 +453,12 @@ export function extractPostFromNode(node: Element): PostData | null {
     lastUpdated: now,
     appearanceCount: 1,
     isDetailView: false,
-    mediaUrls,
+    imageUrls: imageUrls,
+    videoUrls,
+    linkUrls,
     lang,
+    isQuote,
+    quotedPostId,
   };
 }
 

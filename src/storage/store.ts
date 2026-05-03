@@ -72,9 +72,15 @@ export function mergePost(existing: PostData, incoming: PostData): PostData {
 
     // DETAIL VIEW: true si alguna vez se capturó desde vista detallada
     isDetailView: existing.isDetailView || incoming.isDetailView,
+    
+    // CITAS (Quotes)
+    isQuote: incoming.isQuote !== undefined ? incoming.isQuote : existing.isQuote,
+    quotedPostId: incoming.quotedPostId || existing.quotedPostId,
 
     // MEDIA: merge sin duplicados
-    mediaUrls: [...new Set([...existing.mediaUrls, ...incoming.mediaUrls])],
+    imageUrls: [...new Set([...(existing.imageUrls || (existing as any).mediaUrls || []), ...(incoming.imageUrls || (incoming as any).mediaUrls || [])])],
+    videoUrls: [...new Set([...(existing.videoUrls || []), ...(incoming.videoUrls || [])])],
+    linkUrls: [...new Set([...(existing.linkUrls || []), ...(incoming.linkUrls || [])])],
   };
 }
 
