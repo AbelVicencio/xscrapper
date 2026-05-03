@@ -1,6 +1,6 @@
 # 🕵️‍♂️ X Content Scraper
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.20-blue.svg)](package.json)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20|%20Edge-lightgrey.svg)](manifest.json)
 [![License](https://img.shields.io/badge/license-Private-red.svg)](package.json)
 
@@ -9,13 +9,15 @@ Una extensión de navegador diseñada para investigadores de datos, periodistas 
 ## 🌟 Características Principales
 
 - **Zero-Network Scraping**: Actúa como un observador pasivo del DOM. No realiza peticiones adicionales a la API de X, lo que la hace **indetectable** para sistemas de detección de bots.
-- **Privacidad Local Total**: El 100% de los datos recolectados se almacenan localmente en el navegador (`chrome.storage`).
+- **Extracción de Video Stealth (React Fiber)**: Utiliza ingeniería inversa profunda para acceder al estado interno de React (`__reactFiber$`) e interceptar enlaces directos de video (MP4) con la máxima calidad, esquivando restricciones de streaming por fragmentos (`blob:`).
+- **Privacidad Local Total**: El 100% de los datos recolectados se almacenan localmente en el navegador, con sincronización `FORCE_PERSIST` que asegura descargas de datos siempre actualizadas.
 - **Integridad Forense**:
     - Manejo de IDs de 18 dígitos (evita redondeos en Excel).
+    - Mapeo dinámico y estructurado de columnas para múltiples `imageUrls`, `videoUrls` y `linkUrls`.
     - Exportación optimizada con BOM UTF-8 para caracteres internacionales.
-    - Exportación CSV con fórmulas para preservar la precisión de los datos.
+- **Búsqueda Avanzada Autónoma**: Genera URLs de búsqueda avanzada con parámetros precisos (fechas, idiomas, menciones) y almacena el formulario utilizado dentro del archivo JSON exportado.
 - **Autoscroll Orgánico**: Emula el comportamiento humano para cargar contenido automáticamente.
-- **Fusión Inteligente**: Al importar archivos JSON, la extensión fusiona datos existentes, manteniendo las métricas más recientes.
+- **Fusión Inteligente**: Sistema de *Double-Buffer* (Caché + Storage local). Al importar JSONs previos, fusiona la data preservando registros completos y previniendo duplicidad de contenido multimedia.
 
 ## 🛠️ Stack Tecnológico
 

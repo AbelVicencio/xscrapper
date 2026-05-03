@@ -9,16 +9,17 @@ The extension follows a standard Manifest V3 architecture with a focus on passiv
 1.  **Content Scripts (`src/content/`)**: 
     - Uses `MutationObserver` to watch for DOM changes in X.com.
     - Sends detected element batches to the background script.
-2.  **Background Script (`src/background/`)**: 
-    - Acts as the central hub.
-    - Manages the global state of the scraper.
-    - Handles file downloads and message passing between components.
+    - Maintains a high-speed memory cache (`memoryStore`) of scraped items.
+2.  **Background Script / Service Worker (`src/background/`)**: 
+    - Acts as the central hub and manages downloads.
+    - Merges external data imports into local storage securely.
 3.  **Storage Engine (`src/storage/`)**: 
     - Wraps `chrome.storage.local`.
-    - Implements a "double-buffer" system: memory cache for fast UI updates + debounced disk persistence.
+    - Implements a "double-buffer" system: memory cache for fast UI updates + debounced 20s disk persistence.
+    - Utilizes a `FORCE_PERSIST` event handler to flush memory cache to disk immediately before exports.
 4.  **Extractors (`src/extractors/`)**: 
-    - **CRITICAL**: This is the most volatile part of the code. It contains the CSS selectors for X.com.
-    - All scraping logic must be encapsulated here.
+    - **CRITICAL**: Contains the parsing algorithms.
+    - Advanced React Fiber traversal is implemented here to scrape `__reactFiber$` and `__reactProps$` states for hidden data like MP4s.
 
 ## 🛠️ Key Modules & Responsibilities
 
@@ -51,15 +52,21 @@ Use `chrome.runtime.sendMessage` with a clear `type` property.
 ## 🔄 Common Tasks
 
 ### Adding a new field to scrape
-1.  Update `Tweet` interface in `src/types.ts`.
+1.  Update `PostData` interface in `src/types.ts`.
 2.  Update the extraction logic in `src/extractors/tweetExtractor.ts`.
-3.  Update the CSV export mapping in `src/utils/csvConverter.ts` (if applicable).
-4.  Update the `StorageManager` merging logic if the new field requires special handling.
+3.  Update the CSV export mapping in `src/popup/popup.ts` (dynamic column headers might be needed).
+4.  Update the `store.ts` merging logic if the new field requires array deduplication (use `Set`).
 
 ### Fixing a broken selector
 1.  Identify the broken field (e.g., "Views count").
-2.  Locate the relevant selector in `src/extractors/`.
-3.  Use `data-testid` attributes (like `tweetText`, `like`, `retweet`) as they are more stable than classes.
+2.  Locate the relevant selector in `src/extractors/tweetExtractor.ts`.
+3.  Prefer `data-testid` attributes or React Fiber properties.
+
+### React Fiber Extractions (Stealth Mode)
+If a DOM attribute doesn't contain the data (e.g., videos use `blob:` urls), access the React Fiber state directly:
+1. Search up the DOM tree for a container with `__reactFiber$` or `__reactProps$`.
+2. Use deep-search recursion (with `WeakSet` to prevent circular loop crashes) on `memoizedProps` or `pendingProps`.
+3. Bounding the depth (e.g., `depth > 15`) is critical because X.com's Fiber trees are massive.
 
 ## ⚠️ Known Gotchas
 - **Lazy Loading**: X.com unmounts tweets from the DOM as you scroll. The scraper must capture them as they appear.
